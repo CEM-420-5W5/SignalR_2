@@ -23,12 +23,6 @@ export default function Home() {
                               .configureLogging(LogLevel.Information)
                               .build();
 
-    
-
-    newHubConnection.on('', (data) => {
-      
-    });
-
     newHubConnection
       .start()
       .then(() => {
