@@ -16,7 +16,6 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
   const [messages, setMessages] = useState<string[]>([]);
   const [usersList, setUsersList] = useState<UserEntry[]>([]);
   const [channelsList, setChannelsList] = useState<Channel[]>([]);
-  const [isConnectedToHub, setIsConnectedToHub] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserEntry | null>(null);
@@ -45,12 +44,16 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
       setSelectedChannel(null);
     });
 
-    // Marquer comme connecté
-    setIsConnectedToHub(true);
+    hubConnection.on('MostPopularChannel', (messagesCount) => {
+      alert(`Vous êtes dans le canal le plus populaire avec ${messagesCount} messages`);
+    });
 
     return () => {
       hubConnection.off('UsersList');
       hubConnection.off('NewMessage');
+      hubConnection.off('ChannelsList');
+      hubConnection.off('LeaveChannel');
+      hubConnection.off('MostPopularChannel');
     };
   }, [hubConnection]);
 
@@ -97,10 +100,6 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
     hubConnection.invoke('JoinChannel', selectedChannelId, 0);
     setSelectedChannel(null);
     setMessages([]);
-  }
-
-  if (!isConnectedToHub) {
-    return <div>Non connecté au Hub SignalR</div>;
   }
 
   return (
