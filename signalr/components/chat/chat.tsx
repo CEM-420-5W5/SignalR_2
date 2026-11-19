@@ -3,15 +3,16 @@
 import { useState, useEffect } from 'react'
 // On doit commencer par ajouter signalr dans les node_modules: npm install @microsoft/signalr
 // Ensuite on inclut la librairie
-import { HubConnection } from '@microsoft/signalr'
+import { HubConnection, HubConnectionState } from '@microsoft/signalr'
 import { UserEntry, Channel } from '@/lib/models'
 import styles from './chat.module.css'
 
 interface ChatComponentProps {
   hubConnection: HubConnection | null;
+  onConnected?: () => void;
 }
 
-export default function ChatComponent({ hubConnection }: ChatComponentProps) {
+export default function ChatComponent({ hubConnection, onConnected }: ChatComponentProps) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<string[]>([]);
   const [usersList, setUsersList] = useState<UserEntry[]>([]);
@@ -20,7 +21,12 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserEntry | null>(null);
 
-  // Configuration des listeners SignalR quand hubConnection change
+  // Configuration des listeners SignalR quand hubConnection change.
+  // IMPORTANT: on enregistre tous les .on(...) AVANT d'appeler .start().
+  // Si on démarrait la connexion avant, le serveur pourrait envoyer un
+  // message (ex: OnConnectedAsync) dès l'ouverture du transport, avant que
+  // ce useEffect ait eu la chance de s'exécuter et d'enregistrer les
+  // handlers : le message serait alors perdu silencieusement.
   useEffect(() => {
     if (!hubConnection) return;
 
@@ -34,19 +40,41 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
       setMessages(prev => [...prev, msg]);
     });
 
-    // TODO: Écouter le message pour mettre à jour la liste de channels
-    hubConnection!.on('ChannelsList', (data) => {
+    hubConnection.on('NombreMessage', (channelId: number, nbMessages: number) => {
+      setChannelsList(prev => prev.map(channel => {
+        if (channel.id === channelId) {
+          return { ...channel, nbMessages: nbMessages };
+        }
+        return channel;
+      }));
+    });
+    
+
+    // Écouter le message pour mettre à jour la liste de channels
+    hubConnection.on('ChannelsList', (data) => {
       setChannelsList(data);
     });
 
-    // TODO: Écouter le message pour quitter un channel (lorsque le channel est effacé)
-    hubConnection!.on('LeaveChannel', (message) => {
+    // Écouter le message pour quitter un channel (lorsque le channel est effacé)
+    hubConnection.on('LeaveChannel', (message) => {
       setSelectedChannel(null);
     });
-
+    
     hubConnection.on('MostPopularChannel', (messagesCount) => {
       alert(`Vous êtes dans le canal le plus populaire avec ${messagesCount} messages`);
     });
+
+    // Tous les handlers sont enregistrés : on peut maintenant démarrer la connexion.
+    if (hubConnection.state === HubConnectionState.Disconnected) {
+      hubConnection
+        .start()
+        .then(() => {
+          console.log("Connecté au Hub");
+          onConnected?.();
+        })
+        .catch(err => console.log('Error while starting connection: ' + err));
+    }
+    
 
     return () => {
       hubConnection.off('UsersList');
@@ -55,7 +83,7 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
       hubConnection.off('LeaveChannel');
       hubConnection.off('MostPopularChannel');
     };
-  }, [hubConnection]);
+  }, [hubConnection, onConnected]);
 
   function joinChannel(channel: Channel) {
     if (!hubConnection) return;
@@ -70,7 +98,7 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
     if (!hubConnection || !message.trim()) return;
 
     const selectedChannelId = selectedChannel ? selectedChannel.id : 0;
-    hubConnection.invoke('SendMessage', message, selectedChannelId, selectedUser?.value);
+    hubConnection.invoke('SendMessage', message, selectedChannelId, selectedUser?.value.userId);
     setMessage('');
   }
 
@@ -156,7 +184,7 @@ export default function ChatComponent({ hubConnection }: ChatComponentProps) {
                   }`}
                   onClick={() => joinChannel(channel)}
                 >
-                  {channel.title}
+                  {channel.title} ({channel.nbMessages})
                 </button>
                 <button
                   className={styles.deleteButton}
